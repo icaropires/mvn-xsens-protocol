@@ -10,6 +10,16 @@ CHUNK_SIZE = 1500  # MTU
 
 MsgType = namedtuple('MsgType', 'name code fmt size')
 
+# (segment id, x, y, z, rotation x, rotation y, rotation z)
+poseEuler = MsgType('poseEuler', '01', '>Iffffff', 28)
+
+msg_types = {
+   poseEuler.code: poseEuler
+}
+
+for _, msg_type in msg_types.items():
+    assert struct.calcsize(msg_type.fmt) == msg_type.size
+
 
 class Header:
     '''(id string, sample counter, datagram counter, nº items, time code, char id, future use)'''
@@ -53,18 +63,43 @@ def get_msg(sock):
     return [header] + items
 
 
-# (segment id, x, y, z, rotation x, rotation y, rotation z)
-poseEuler = MsgType('poseEuler', '01', '>Iffffff', 28)
+def get_ready_socket():
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind((UDP_IP, UDP_PORT))
 
-msg_types = {
-   poseEuler.code: poseEuler
-}
+    return sock
 
-for _, msg_type in msg_types.items():
-    assert struct.calcsize(msg_type.fmt) == msg_type.size
 
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.bind((UDP_IP, UDP_PORT))
+def write_records_to_file():
+    sock = get_ready_socket()
 
-while True:
-    print(get_msg(sock), end='\n\n')
+    with open('positions.csv', 'w') as f:
+        f.write('segment_id,x,y,z,rotation_x,rotation_y,rotation_z\n')
+
+        while True:
+            header, *items = get_msg(sock)
+
+            if header.msg_type_code == poseEuler.code:
+                f.write(
+                    '\n'.join(
+                        ','.join(map(str, item)) for item in items
+                    ) + '\n'
+                )
+
+                print(f'Recorded {len(items)} items!')
+
+
+def get_data():
+    sock = get_ready_socket()
+
+    while True:
+        data = get_msg(sock)
+
+        if not data:
+            raise StopIteration()
+
+        yield data
+
+
+if __name__ == '__main__':
+    write_records_to_file()
